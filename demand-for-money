@@ -1,0 +1,40 @@
+install.packages("sandwich")
+install.packages("lmtest")  
+library(sandwich) 
+library(lmtest)   
+library(stargazer)
+library(ggplot2)
+
+admissions <- read.csv("Admission_Predict.csv")
+summary(admissions)
+
+stargazer(admissions, type ='text', digits = 2)
+
+#Add a column for chance of admission, rather than probability
+names(admissions)[names(admissions) == "Chance.of.Admit"] <- "admit_prob"
+admissions$admit_percent <- admissions$admit_prob*100
+
+#Multiple Linear Regression Model
+mod1 <- lm(admit_percent ~ GRE.Score + TOEFL.Score + University.Rating + SOP + LOR + 
+             CGPA + Research, data = admissions)
+summary(mod1)
+
+#Check for Heteroskedasticity
+ggplot(mod1) + 
+  geom_point(aes(x=.fitted, y=.resid))+
+  geom_hline(yintercept=0, color = "#C12795", size = 1)+ 
+  ggtitle("Residuals Plot with OLS Regression Model") +
+  xlab("Fitted Values") + ylab("Residuals")
+
+#BP Test 
+bptest(mod1)
+
+#Robust Standard Errors
+modfinal<-coeftest(mod1,sandwich)
+robust.covariancemtx <- sandwich(mod1)
+robust.se <- sqrt(diag(robust.covariancemtx))
+
+#stargazer output with both robust SEs
+stargazer(mod1, modfinal, se=list(NULL,robust.se), type = "text")
+#t-test of coefficients
+summary(modfinal)
