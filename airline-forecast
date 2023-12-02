@@ -3,8 +3,6 @@ import pandas as pd
 """
 Program Overview: Forecast the flight bookings based upon days prior and day of week of the departure
 
-By: Saran Pavuluri | Sanskriti Bora | Abhi Akarla | Vanessa Dasuki
-
 """
 
 def addForecast(sample, testcase, parameter):
