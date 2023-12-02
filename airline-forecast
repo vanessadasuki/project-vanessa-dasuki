@@ -1,179 +1,178 @@
 import pandas as pd
 
-def formatDataSet(dataSet, opType): 
+"""
+Program Overview: Forecast the flight bookings based upon days prior and day of week of the departure
+
+By: Saran Pavuluri | Sanskriti Bora | Abhi Akarla | Vanessa Dasuki
+
+"""
+
+def addForecast(sample, testcase, parameter):
     
-    if opType.lower() == 'trial':
+    # perform both 'day_of_week' and 'daysToDepart' analysis if parameter is True, else do just 'daysToDepart'
+    if parameter == True:
+        testcase = testcase.merge(sample.groupby(["DaysToDepart", "day_of_week"])["remDemand"].mean(),
+                                   on=["DaysToDepart", "day_of_week"],how = "inner")
         
-        dataSet['DaysToDepart'] = (pd.to_datetime(dataSet['departure_date']) # check for camel case consistency
-                                  - pd.to_datetime(dataSet['booking_date'])) 
-        
-        dataSet['day_of_week'] = pd.to_datetime(dataSet['departure_date']).dt.day_name()
-
-        df = pd.DataFrame()
-
-        df["Final_Demand"] = dataSet[dataSet["DaysToDepart"] == "0 days"][["cum_bookings"]]
-        df["departure_date"] = dataSet[dataSet["DaysToDepart"] == "0 days"][["departure_date"]]
-
-        dataSet = dataSet.merge(df, on="departure_date", how="inner")
-
-        dataSet["remDemand"] = dataSet["Final_Demand"] - dataSet["cum_bookings"]
-        dataSet["rateOfBookings"] = dataSet["cum_bookings"]/dataSet["Final_Demand"]
+    else:
+        testcase = testcase.merge(sample.groupby("DaysToDepart")["remDemand"].mean(),
+                                  on= "DaysToDepart", how = "inner")
     
-    else: 
-        pass
-           
-    return dataSet
+    testcase["addForecast"] = testcase["cum_bookings"] + testcase["remDemand"] # calculate additive values
     
+    # a fraction of table is saved to create a results table of sorts later
+    additiveFcst = testcase[["departure_date", "booking_date" , "day_of_week", "DaysToDepart" , "addForecast"]]  
     
-def minimiseDataSet(dataSet, opType): # change 'opType' to values names... that way function is more dynamic
+    (addError, naiveError) = absError(testcase, 'add') # error calculation
     
-    # Can be optimised to provide for calling 'values' in function itself, so then if..else.. loops can reduce
+    mase = findMASE(addError, naiveError) # Mase calculation
     
-    if opType.lower() == 'trial':
+    return (additiveFcst, mase)
     
-        dataSet = dataSet.pivot_table(index = 'departure_date', 
-                                          columns = 'DaysToDepart',
-                                          values = 'remDemand')
-
-    elif opType.lower() == 'multitrial':
-        
-        dataSet = dataSet.pivot_table(index = 'departure_date', 
-                                          columns = 'DaysToDepart',
-                                          values = 'rateOfBookings')
+def multiForecast(sample, testcase, dayOfWeek):
+    
+    # perform both 'day_of_week' and 'daysToDepart' analysis if parameter is True, else do just 'daysToDepart'
+    if dayOfWeek == True:
+        testcase  = testcase.merge(sample.groupby(["DaysToDepart", "day_of_week"])["rateBookings"].mean(),
+                          on=["DaysToDepart", "day_of_week"], how = "inner")
     
     else:
-        dataSet = dataSet.pivot_table(index = 'departure_date', 
-                                          columns = 'DaysToDepart',
-                                          values = 'cum_bookings')
-
-    dataSet = dataSet.iloc[:, 0:15]
+        testcase  = testcase.merge(sample.groupby("DaysToDepart")["rateBookings"].mean(),
+                                   on= "DaysToDepart", how = "inner")
     
-    return dataSet
-
-trainingDataset = pd.DataFrame()
-
-# Handling Training Data
-trainingDataset = pd.read_csv('airline_data_training.csv', sep=',', header = 0)
-
-trainingDataset = formatDataSet(trainingDataset, 'trial')
-
-sampleDataset = pd.DataFrame()
-
-sampleDataset = minimiseDataSet(trainingDataset, 'trial')
-
-print(sampleDataset)
-
-# Handling Validation Data
-validationDataset = pd.read_csv('airline_data_validation.csv', sep=',', header = 0)
-
-validationDataset = formatDataSet(validationDataset, 'trial')
-
-CaseDataSet = minimiseDataSet(validationDataset, 'not')
-
-
-# Additive Forecast - !!can be spun-off into a function of sorts starting here
-addForecast = round(CaseDataSet + sampleDataset.mean(), 0) # Cum_demand from validation to rem_demand's mean
-
-errorInAdd = pd.DataFrame()
-
-for col in addForecast.columns[1:]:
-    errorInAdd[col] = abs( addForecast[col] - addForecast['0 days'])
-
-MASE = round(sum(errorInAdd.sum()) / 9154.33, 4) # ending here !!
-
-print(str(MASE*100)+'% is the MASE score for additive forecast without weekday analysis')
-
-#
-#
-#
-# Day-of-Week Analysis starts here:
-
-dayOfWeek = pd.DataFrame(errorInAdd.index) # multiple places where adding week to dataset took place, function!!?
-
-dayOfWeek['day_of_week'] = pd.to_datetime(dayOfWeek['departure_date']).dt.day_name()
-
-errorInAdd = errorInAdd.merge(dayOfWeek, on="departure_date", how="right") # merging - can be a function!!
-
-# error.groupby("day_of_week").mean(numeric_only = True)
-
-errorInAdd = errorInAdd.groupby("day_of_week").sum(numeric_only = True) # function from here!!
-
-errorInAdd['addRowSum'] = errorInAdd.sum(axis=1, numeric_only = True) # to here !!
-
-#
-#
-#
-# Multiplicative Forecast starts here
-
-multiSampleSet = minimiseDataSet(trainingDataset, 
-                                 'multiTrial') # simplify function!! change multiTrial to value field say 'rateOfBookings'
+    testcase["multiForecast"] = testcase["cum_bookings"]/testcase["rateBookings"] # calculate multi values
     
-multiForecast = round(CaseDataSet / multiSampleSet.mean(),0)
-
-errorInMulti = pd.DataFrame()
-
-for col in multiForecast.columns[1:]:
-    errorInMulti[col] = abs( multiForecast[col] - multiForecast['0 days'])
-
-MASE = round(sum(errorInMulti.sum()) / 9154.33, 4)
-
-print(str(MASE*100)+'% is the MASE score for multi forecast without weekday analysis')
-
-df = pd.DataFrame(errorInMulti.index)
-
-df['day_of_week'] = pd.to_datetime(df['departure_date']).dt.day_name()
-
-errorInMulti = errorInMulti.merge(df, on="departure_date", how="right")
-
-errorInMulti = errorInMulti.groupby("day_of_week").sum(numeric_only = True)
-
-errorInMulti['multiRowSum'] = errorInMulti.sum(axis=1, numeric_only=True)
-
-errorTerms = errorInMulti[['multiRowSum']].merge(errorInAdd[['addRowSum']], on= 'day_of_week', how = 'right')
-
-arr1 = errorInAdd.iloc[:,:14]
-
-arr2 = errorInMulti.iloc[:, :14]
-
-addErrorMatrix = arr1 < arr2
-
-df = pd.DataFrame(sampleDataset.index)
-
-df['day_of_week'] = pd.to_datetime(df['departure_date']).dt.day_name()
-
-sampleDataset = sampleDataset.merge(df, on="departure_date", how="right")
-
-sampleDataset = sampleDataset.groupby("day_of_week").mean(numeric_only = True)
+    # a fraction of table is saved to create a results table of sorts later
+    multiplicativeFcst = testcase[["departure_date", "booking_date" ,"day_of_week", "DaysToDepart" ,"multiForecast"]]
+    
+    (multiError, naiveError) = absError(testcase, 'multi') # error calculation
+    
+    mase = findMASE(multiError, naiveError) # Mase calculation
+    
+    return (multiplicativeFcst, mase)
 
 
+def absError(testcase, forecastType):
+    
+    testcase["naiveError"] = abs(testcase["naive_fcst"] 
+                                    - testcase["Final_Demand"])
+        
+    naiveError = testcase["naiveError"].sum()
+    
+    
+    if forecastType.lower() == 'add':
+        
+        testcase["addError"] = abs(testcase["addForecast"] 
+                                    - testcase["Final_Demand"])
+        
+        addError = testcase["addError"].sum()
+        
+        return addError, naiveError
+        
+    elif forecastType.lower() == 'multi':
+        
+        testcase["multiError"] = abs(testcase["multiForecast"] 
+                                    - testcase["Final_Demand"])
+        
+        multiError = testcase["multiError"].sum()
+        
+        return multiError, naiveError
+
+def finalDemand(dataset):
+    
+    df = pd.DataFrame()
+
+    df["Final_Demand"] = dataset[dataset["DaysToDepart"] == "0 days"][["cum_bookings"]]
+    
+    df["departure_date"] = dataset[dataset["DaysToDepart"] == "0 days"][["departure_date"]]
+    
+    dataset = dataset.merge(df, on="departure_date", how="right")
+    
+    return dataset
+    
+def findMASE(error, naive):
+    
+    mase = 0
+    
+    mase = round((error/naive), 4) * 100
+    
+    return mase
+    
+def dataProcessing(dataset, dtype):
+    
+    dataset['day_of_week'] = pd.to_datetime(dataset['departure_date']).dt.day_name() # day_of_week usind 'departure' dates
+    
+    dataset['DaysToDepart'] = (pd.to_datetime(dataset['departure_date'])   
+                                  - pd.to_datetime(dataset['booking_date']))
+    
+    dataset = finalDemand(dataset) # adding final demand for each departure
+    
+    if dtype.lower() == 'sample': # if condition since only training data needs to have these
+    
+        dataset["remDemand"] = dataset["Final_Demand"] - dataset["cum_bookings"]
+
+        dataset["rateBookings"] = dataset["cum_bookings"] / dataset["Final_Demand"]
+        
+        dataset = dataset[dataset["DaysToDepart"] != '0 days'][:] # only saving days prior data, leaving departure day data
+
+    return dataset
+
+def resultTable(sample, testcase):
+    
+    # creating a MASE results table and a forecasts table
+    (maseDpAdd, dpAdd) = addForecast(sample, testcase, False)
+
+    (maseDwAdd, dwAdd) = addForecast(sample, testcase, True)
+
+    (maseDpMulti, dpMulti) = multiForecast(sample, testcase, False)
+
+    (maseDwMulti, dwMulti) = multiForecast(sample, testcase, True)
+    
+    # merging various forecast results into one table
+    fcstResult = maseDpAdd.merge(maseDwAdd, on=["day_of_week", "DaysToDepart", "departure_date", "booking_date"], how = "inner") \
+                    .merge(maseDpMulti, on=["day_of_week", "DaysToDepart", "departure_date", "booking_date"], how = "inner") \
+                    .merge(maseDwMulti, on=["day_of_week", "DaysToDepart", "departure_date", "booking_date"], how = "inner")
+    
+    fcstResult = round(fcstResult,0)
+    
+    # adding all MASE scores into a table
+    maseValues = pd.DataFrame(columns=["Forecasts"],
+                              index=["Additive - Days Prior",        
+                                     "Additive - Days Prior + Day of Week",
+                                     "Multiplicative - Days Prior",
+                                     "Multiplicative - Days Prior + Day of Week"],
+                              data=[[dpAdd], [dwAdd], [dpMulti], [dwMulti]])
+    
+    return fcstResult, maseValues
+
+def main():
+    sample = pd.read_csv('airline_data_training.csv', sep=',', header = 0)
+    
+    sample = dataProcessing(sample, 'sample') # processing the data to add required columns for analysis
+    
+    usecase = pd.read_csv('airline_data_validation.csv', sep=',', header = 0)
+    
+    usecase = dataProcessing(usecase, 'validation') # processing the data to add required columns for analysis
+
+    Results, MASE = resultTable(sample, usecase)
+    
+    Results = Results.rename(columns={"addForecast_x": "addByDaysPrior", # renaming columns for clarity
+                                      "addForecast_y": "addByDayOfWeek",
+                                      "multiForecast_x" : "multiByDaysPrior",
+                                      "multiForecast_y" : "multiByDayOfWeek"})
+    
+    
+    print("According to our analysis,", str(MASE["Forecasts"].idxmin()),          # printing results
+          "has the least MASE score at", str(MASE["Forecasts"].min()) + str('%') 
+          + "\n\nFor MASE scores of others, refer the below table:")
+    
+    return Results, MASE
 
 
-df = pd.DataFrame(multiSampleSet.index)
+Results = pd.DataFrame()
 
-df['day_of_week'] = pd.to_datetime(df['departure_date']).dt.day_name()
+MASE = pd.DataFrame()
 
+Results, MASE = main()
 
-multiSampleSet = multiSampleSet.merge(df, on="departure_date", how="right")
-
-multiSampleSet = multiSampleSet.groupby("day_of_week").mean(numeric_only = True)
-
-
-newSampleDataset = addErrorMatrix * sampleDataset.iloc[:, 1:15]
-
-
-multiErrorMatrix = arr1 > arr2
-
-newMultiSampleSet = multiErrorMatrix * multiSampleSet.iloc[:, 1:15]
-
-trainingDataset
-
-sampleDataset #Training Data with rem_days
-
-sampleDataset #Training Data with rem_days
-
-addForecast
-
-errorInAdd.head(3)
-
-errorInAdd[['addRowSum']]
-
+MASE
